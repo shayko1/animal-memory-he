@@ -280,6 +280,7 @@ h1 {
   cursor: pointer;
   overflow: hidden;
   transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
   transition:
     transform 250ms var(--ease),
     border-color 200ms var(--ease),
@@ -304,10 +305,23 @@ h1 {
   display: grid;
   place-items: center;
   backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
 }
 
 .front {
   transform: rotateY(180deg);
+}
+
+/* Safari/Chrome can sometimes render a "blank" front during 3D flips unless
+   faces have an explicit stacking order. */
+.front {
+  z-index: 2;
+}
+
+.back {
+  z-index: 1;
 }
 
 .back {

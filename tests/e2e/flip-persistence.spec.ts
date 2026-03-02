@@ -16,8 +16,12 @@ test('first flipped card stays face-up until second card is chosen', async ({ pa
   // Should remain face-up after click
   await expect(first).toHaveAttribute('data-state', 'faceUp')
 
-  // And it should not auto-flip back immediately
-  await page.waitForTimeout(250)
+  // And the front should show something visible (emoji exists and isn't empty)
+  await expect(first.locator('.emoji')).toBeVisible()
+  await expect(first.locator('.emoji')).not.toHaveText('')
+
+  // Should not auto-flip back quickly (within 1s)
+  await page.waitForTimeout(900)
   await expect(first).toHaveAttribute('data-state', 'faceUp')
 })
 
