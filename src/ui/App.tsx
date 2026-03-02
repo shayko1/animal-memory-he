@@ -8,6 +8,8 @@ import { playSfx } from './sfx'
 
 type Toast = { tone: 'normal' | 'success'; text: string } | null
 
+type Mode = 'classic' | 'daily'
+
 const STORAGE_KEY = 'animal-memory-he:v1'
 
 function animalMeta(animalId: string) {
@@ -18,15 +20,49 @@ function now() {
   return Date.now()
 }
 
+function todayYmdLocal() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function dailySeed(ymd: string) {
+  // Deterministic seed based on date (local).
+  // Example: 2026-03-03 -> 20260303
+  return Number(ymd.replaceAll('-', ''))
+}
+
+function dailyDifficultyId(ymd: string): DifficultyId {
+  // Rotate difficulty: easy -> medium -> hard
+  const dayNum = dailySeed(ymd)
+  const idx = dayNum % 3
+  return idx === 0 ? 'easy' : idx === 1 ? 'medium' : 'hard'
+}
+
 export default function App() {
   const reducedMotion = useReducedMotion()
   const [soundOn, setSoundOn] = useState(true)
+
+  const [mode, setMode] = useState<Mode>('classic')
+  const [dailyYmd, setDailyYmd] = useState(() => todayYmdLocal())
 
   const [difficultyId, setDifficultyId] = useState<DifficultyId>('easy')
   const difficulty = useMemo(() => getDifficulty(difficultyId), [difficultyId])
 
   const [state, setState] = useState(() => newGameState(difficulty))
   const [toast, setToast] = useState<Toast>(null)
+
+  const dailyKey = useMemo(() => `animal-memory-he:daily:${dailyYmd}`, [dailyYmd])
+  const dailyStats = useMemo(() => {
+    try {
+      const raw = localStorage.getItem(dailyKey)
+      return raw ? (JSON.parse(raw) as { bestTimeMs?: number; bestMoves?: number } | null) : null
+    } catch {
+      return null
+    }
+  }, [dailyKey, state.lastActionAt])
 
   const mismatchTimer = useRef<number | null>(null)
 
@@ -38,6 +74,16 @@ export default function App() {
       const saved = JSON.parse(raw) as { difficultyId?: DifficultyId; soundOn?: boolean }
       if (saved.difficultyId) setDifficultyId(saved.difficultyId)
       if (typeof saved.soundOn === 'boolean') setSoundOn(saved.soundOn)
+
+      // start daily challenge automatically if opened with #daily
+      if (window.location.hash === '#daily') {
+        const ymd = todayYmdLocal()
+        setDailyYmd(ymd)
+        const did = dailyDifficultyId(ymd)
+        setDifficultyId(did)
+        setMode('daily')
+        setState(() => newGameState(getDifficulty(did), dailySeed(ymd)))
+      }
     } catch {
       // ignore
     }
@@ -51,11 +97,12 @@ export default function App() {
     }
   }, [difficultyId, soundOn])
 
-  // keep state difficulty in sync
+  // keep state difficulty in sync (classic mode only)
   useEffect(() => {
+    if (mode !== 'classic') return
     setState((s) => reduce(s, { type: 'SET_DIFFICULTY', difficulty }))
     setToast(null)
-  }, [difficulty])
+  }, [difficulty, mode])
 
   // preview tick
   useEffect(() => {
@@ -90,13 +137,28 @@ export default function App() {
 
   useEffect(() => {
     if (state.status === 'won') {
+      const suffix = mode === 'daily' ? ` (אתגר יומי: ${dailyYmd})` : ''
       setToast({
         tone: 'success',
-        text: 'כל הכבוד! זיהית את כל הזוגות. רוצה לנסות רמה אחרת?',
+        text: `כל הכבוד! זיהית את כל הזוגות.${suffix} רוצה עוד סיבוב?`,
       })
       playSfx('win', soundOn)
+
+      if (mode === 'daily') {
+        const timeMs = elapsedMs
+        const moves = state.moves
+        try {
+          const prevRaw = localStorage.getItem(dailyKey)
+          const prev = prevRaw ? (JSON.parse(prevRaw) as { bestTimeMs?: number; bestMoves?: number }) : {}
+          const bestTimeMs = prev.bestTimeMs === undefined ? timeMs : Math.min(prev.bestTimeMs, timeMs)
+          const bestMoves = prev.bestMoves === undefined ? moves : Math.min(prev.bestMoves, moves)
+          localStorage.setItem(dailyKey, JSON.stringify({ bestTimeMs, bestMoves }))
+        } catch {
+          // ignore
+        }
+      }
     }
-  }, [state.status, soundOn])
+  }, [state.status, soundOn, mode, dailyYmd, dailyKey, elapsedMs, state.moves])
 
   const elapsedMs = useMemo(() => {
     if (!state.startedAt) return 0
@@ -114,11 +176,38 @@ export default function App() {
   }, [state.startedAt, state.endedAt])
 
   function onNewGame() {
+    setMode('classic')
     setToast(null)
     setState((s) => reduce(s, { type: 'NEW_GAME' }))
     window.requestAnimationFrame(() => {
       setState((s) => reduce(s, { type: 'START' }))
     })
+  }
+
+  function onDailyChallenge() {
+    const ymd = todayYmdLocal()
+    setDailyYmd(ymd)
+    const did = dailyDifficultyId(ymd)
+    setDifficultyId(did)
+    setMode('daily')
+    setToast(null)
+
+    // new deterministic board for today
+    const seed = dailySeed(ymd)
+    const diff = getDifficulty(did)
+    setState(() => newGameState(diff, seed))
+
+    // Start preview immediately (same UX as classic)
+    window.requestAnimationFrame(() => {
+      setState((s) => reduce(s, { type: 'START' }))
+    })
+
+    // update URL hash for shareability
+    try {
+      window.location.hash = 'daily'
+    } catch {
+      // ignore
+    }
   }
 
   function onTileFlip(tile: Tile) {
@@ -170,7 +259,12 @@ export default function App() {
           </div>
           <div className="badgeRow" aria-label="מידע משחק">
             <span className="badge">{statusText}</span>
-            <span className="badge">{difficulty.labelHe}</span>
+            <span className="badge">{mode === 'daily' ? `אתגר יומי · ${dailyYmd}` : difficulty.labelHe}</span>
+            {mode === 'daily' && dailyStats && (
+              <span className="badge">
+                שיא היום: {dailyStats.bestMoves ?? '—'} מהלכים · {dailyStats.bestTimeMs ? formatTimeMs(dailyStats.bestTimeMs) : '—'}
+              </span>
+            )}
             <span className="badge">
               טיפים: <kbd>Tab</kbd> ניווט · <kbd>Enter</kbd> הפיכה
             </span>
@@ -220,8 +314,17 @@ export default function App() {
                   id="difficulty"
                   className="select"
                   value={difficultyId}
-                  onChange={(e) => setDifficultyId(e.target.value as DifficultyId)}
+                  onChange={(e) => {
+                    setMode('classic')
+                    setDifficultyId(e.target.value as DifficultyId)
+                    try {
+                      window.location.hash = ''
+                    } catch {
+                      // ignore
+                    }
+                  }}
                   aria-describedby={helpId}
+                  disabled={mode === 'daily'}
                 >
                   {DIFFICULTIES.map((d) => (
                     <option key={d.id} value={d.id}>
@@ -234,6 +337,9 @@ export default function App() {
               <div className="actions">
                 <button className="btn btnPrimary" onClick={onNewGame}>
                   משחק חדש
+                </button>
+                <button className="btn" onClick={onDailyChallenge}>
+                  אתגר יומי
                 </button>
                 <button
                   className={`btn ${soundOn ? '' : 'btnDanger'}`}
