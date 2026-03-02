@@ -41,6 +41,131 @@ function dailyDifficultyId(ymd: string): DifficultyId {
   return idx === 0 ? 'easy' : idx === 1 ? 'medium' : 'hard'
 }
 
+function difficultyLabelHe(id: DifficultyId) {
+  return getDifficulty(id).labelHe
+}
+
+function renderShareText(params: {
+  mode: Mode
+  dailyYmd: string
+  difficultyId: DifficultyId
+  moves: number
+  elapsedMs: number
+}) {
+  const diff = difficultyLabelHe(params.difficultyId)
+  const time = formatTimeMs(params.elapsedMs)
+  const prefix = params.mode === 'daily' ? `אתגר יומי ${params.dailyYmd}` : 'משחק רגיל'
+  return `משחק זיכרון: חיות 🐾\n${prefix}\nרמה: ${diff}\nזמן: ${time} · מהלכים: ${params.moves}\n${window.location.href}`
+}
+
+async function shareImageBlob(blob: Blob, fallbackName: string, text: string) {
+  const file = new File([blob], fallbackName, { type: 'image/png' })
+  // Prefer native share when possible
+  if (navigator.share && ('canShare' in navigator ? (navigator as any).canShare?.({ files: [file] }) ?? true : true)) {
+    try {
+      await navigator.share({ files: [file], text, title: 'משחק זיכרון: חיות' })
+      return { method: 'native' as const }
+    } catch {
+      // fall back to download
+    }
+  }
+
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = fallbackName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  return { method: 'download' as const }
+}
+
+function drawShareCard(params: {
+  mode: Mode
+  dailyYmd: string
+  difficultyId: DifficultyId
+  moves: number
+  elapsedMs: number
+}) {
+  const canvas = document.createElement('canvas')
+  canvas.width = 1200
+  canvas.height = 630
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('No canvas context')
+
+  // background
+  const bg = ctx.createLinearGradient(0, 0, 1200, 630)
+  bg.addColorStop(0, '#070b14')
+  bg.addColorStop(1, '#0b1220')
+  ctx.fillStyle = bg
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  // soft glows
+  const glow1 = ctx.createRadialGradient(240, 120, 20, 240, 120, 420)
+  glow1.addColorStop(0, 'rgba(98,231,255,0.22)')
+  glow1.addColorStop(1, 'rgba(98,231,255,0)')
+  ctx.fillStyle = glow1
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  const glow2 = ctx.createRadialGradient(980, 160, 20, 980, 160, 420)
+  glow2.addColorStop(0, 'rgba(167,139,250,0.20)')
+  glow2.addColorStop(1, 'rgba(167,139,250,0)')
+  ctx.fillStyle = glow2
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  // card
+  const x = 70
+  const y = 70
+  const w = 1060
+  const h = 490
+  const r = 32
+  ctx.fillStyle = 'rgba(255,255,255,0.07)'
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)'
+  ctx.lineWidth = 2
+
+  ctx.beginPath()
+  ctx.moveTo(x + r, y)
+  ctx.arcTo(x + w, y, x + w, y + h, r)
+  ctx.arcTo(x + w, y + h, x, y + h, r)
+  ctx.arcTo(x, y + h, x, y, r)
+  ctx.arcTo(x, y, x + w, y, r)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+
+  ctx.fillStyle = 'rgba(255,255,255,0.92)'
+  ctx.textAlign = 'right'
+  ctx.direction = 'rtl'
+
+  ctx.font = '700 56px system-ui'
+  ctx.fillText('משחק זיכרון: חיות', x + w - 40, y + 95)
+
+  ctx.font = '400 28px system-ui'
+  const diff = difficultyLabelHe(params.difficultyId)
+  const time = formatTimeMs(params.elapsedMs)
+  const modeLine = params.mode === 'daily' ? `אתגר יומי · ${params.dailyYmd}` : 'משחק רגיל'
+  ctx.fillStyle = 'rgba(255,255,255,0.78)'
+  ctx.fillText(modeLine, x + w - 40, y + 145)
+
+  // stats chips
+  const chips = [`רמה: ${diff}`, `זמן: ${time}`, `מהלכים: ${params.moves}`]
+  ctx.font = '600 30px system-ui'
+  ctx.fillStyle = 'rgba(255,255,255,0.92)'
+  let cy = y + 235
+  for (const c of chips) {
+    ctx.fillText(c, x + w - 40, cy)
+    cy += 54
+  }
+
+  // footer URL
+  ctx.font = '400 22px system-ui'
+  ctx.fillStyle = 'rgba(255,255,255,0.56)'
+  ctx.fillText('shayko1.github.io/animal-memory-he', x + w - 40, y + h - 45)
+
+  return canvas
+}
+
 export default function App() {
   const reducedMotion = useReducedMotion()
   const [soundOn, setSoundOn] = useState(true)
@@ -53,6 +178,8 @@ export default function App() {
 
   const [state, setState] = useState(() => newGameState(difficulty))
   const [toast, setToast] = useState<Toast>(null)
+
+  const [shareBusy, setShareBusy] = useState(false)
 
   const dailyKey = useMemo(() => `animal-memory-he:daily:${dailyYmd}`, [dailyYmd])
   const dailyStats = useMemo(() => {
@@ -211,6 +338,42 @@ export default function App() {
     }
   }
 
+  async function onShareImage() {
+    if (shareBusy) return
+    setShareBusy(true)
+    try {
+      const text = renderShareText({ mode, dailyYmd, difficultyId, moves: state.moves, elapsedMs })
+      const canvas = drawShareCard({ mode, dailyYmd, difficultyId, moves: state.moves, elapsedMs })
+
+      const blob: Blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Failed to create image'))), 'image/png')
+      })
+
+      const name = mode === 'daily' ? `animal-memory-${dailyYmd}.png` : 'animal-memory.png'
+      const res = await shareImageBlob(blob, name, text)
+
+      setToast({
+        tone: 'normal',
+        text: res.method === 'native' ? 'נפתח שיתוף.' : 'התמונה ירדה למחשב. אפשר לשתף אותה בקלות 🙂',
+      })
+    } catch {
+      setToast({ tone: 'normal', text: 'לא הצלחתי לשתף כתמונה. נסה שוב או שתף כטקסט.' })
+    } finally {
+      setShareBusy(false)
+    }
+  }
+
+  async function onShareText() {
+    const text = renderShareText({ mode, dailyYmd, difficultyId, moves: state.moves, elapsedMs })
+    try {
+      await navigator.clipboard.writeText(text)
+      setToast({ tone: 'normal', text: 'הועתק ללוח. הדבק ושיתוף!' })
+    } catch {
+      // fallback
+      window.prompt('העתק ושיתוף:', text)
+    }
+  }
+
   function onTileFlip(tile: Tile) {
     if (state.status === 'ready') {
       setState((s) => reduce(s, { type: 'START' }))
@@ -277,6 +440,16 @@ export default function App() {
               aria-live="polite"
             >
               {toast.text}
+              {state.status === 'won' && (
+                <div style={{ display: 'flex', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+                  <button className="btn" onClick={onShareImage} disabled={shareBusy}>
+                    {shareBusy ? 'יוצר תמונה…' : 'שתף כתמונה'}
+                  </button>
+                  <button className="btn" onClick={onShareText}>
+                    העתק טקסט לשיתוף
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </section>
