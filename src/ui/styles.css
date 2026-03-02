@@ -304,35 +304,38 @@ h1 {
   inset: 0;
   display: grid;
   place-items: center;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  transform-style: preserve-3d;
-  -webkit-transform-style: preserve-3d;
 }
 
-.front {
-  transform: rotateY(180deg);
-}
-
-/* Safari/Chrome can sometimes render a "blank" front during 3D flips unless
-   faces have an explicit stacking order. */
+/*
+  Reliability > fancy 3D: some Chrome setups intermittently render a blank
+  "front" during preserve-3d flips. We use a crossfade instead.
+*/
 .front {
   z-index: 2;
+  opacity: 0;
+  transition: opacity 180ms var(--ease);
 }
 
 .back {
   z-index: 1;
-}
-
-.back {
+  opacity: 1;
+  transition: opacity 180ms var(--ease);
   background:
     radial-gradient(180px 120px at 30% 25%, rgba(255, 255, 255, 0.1), transparent 60%),
     linear-gradient(145deg, rgba(98, 231, 255, 0.12), rgba(167, 139, 250, 0.1));
 }
 
 .tile[data-state='faceUp'] {
-  transform: rotateY(180deg) translateY(-1px);
+  transform: translateY(-1px);
   background: rgba(255, 255, 255, 0.08);
+}
+
+.tile[data-state='faceUp'] .front {
+  opacity: 1;
+}
+
+.tile[data-state='faceUp'] .back {
+  opacity: 0;
 }
 
 .emoji {

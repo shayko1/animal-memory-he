@@ -7,8 +7,9 @@ test('first flipped card stays face-up until second card is chosen', async ({ pa
   const tiles = page.getByRole('gridcell')
   await expect(tiles).toHaveCount(16)
 
-  // Wait for preview to end (tiles become enabled)
+  // Wait for preview to end (tiles become enabled AND status text changes)
   await expect(tiles.first()).toBeEnabled({ timeout: 5000 })
+  await expect(page.getByText('תצוגה מקדימה…')).toHaveCount(0, { timeout: 5000 })
 
   const first = tiles.nth(0)
   await first.click()
