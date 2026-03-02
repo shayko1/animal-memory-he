@@ -135,6 +135,13 @@ export default function App() {
     }
   }, [state.lock, state.tiles, reducedMotion, soundOn])
 
+  const elapsedMs = useMemo(() => {
+    if (!state.startedAt) return 0
+    if (state.endedAt) return state.endedAt - state.startedAt
+    return now() - state.startedAt
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.startedAt, state.endedAt, state.lastActionAt])
+
   useEffect(() => {
     if (state.status === 'won') {
       const suffix = mode === 'daily' ? ` (אתגר יומי: ${dailyYmd})` : ''
@@ -160,12 +167,6 @@ export default function App() {
     }
   }, [state.status, soundOn, mode, dailyYmd, dailyKey, elapsedMs, state.moves])
 
-  const elapsedMs = useMemo(() => {
-    if (!state.startedAt) return 0
-    if (state.endedAt) return state.endedAt - state.startedAt
-    return now() - state.startedAt
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.startedAt, state.endedAt, state.lastActionAt])
 
   useEffect(() => {
     if (!state.startedAt || state.endedAt) return
