@@ -254,7 +254,12 @@ export default function App() {
       </header>
 
       <main className="card boardWrap">
-        <Board cols={difficulty.cols} tiles={state.tiles} onFlip={onTileFlip} />
+        <Board
+          cols={difficulty.cols}
+          tiles={state.tiles}
+          onFlip={onTileFlip}
+          previewLocked={state.status === 'preview'}
+        />
         <div className="footer">
           <span>
             נגישות: תמיכה ב־RTL, ניווט מקלדת, <kbd>Tab</kbd>/<kbd>Enter</kbd>, מצב "הפחתת
@@ -271,24 +276,26 @@ function Board({
   tiles,
   cols,
   onFlip,
+  previewLocked,
 }: {
   tiles: Tile[]
   cols: 4 | 5 | 6
   onFlip: (tile: Tile) => void
+  previewLocked: boolean
 }) {
   return (
     <div className="grid" data-cols={String(cols)} role="grid" aria-label="לוח משחק">
       {tiles.map((t) => {
         const meta = animalMeta(t.animalId)
         const label = meta ? `${meta.nameHe}` : 'קלף'
-        const state = t.faceUp ? 'faceUp' : 'faceDown'
-        const disabled = t.matched || (state.status === 'preview' && !t.faceUp)
+        const faceState = t.faceUp ? 'faceUp' : 'faceDown'
+        const disabled = t.matched || (previewLocked && !t.faceUp)
 
         return (
           <button
             key={t.key}
             className="tile"
-            data-state={state}
+            data-state={faceState}
             onClick={() => onFlip(t)}
             disabled={disabled}
             aria-disabled={disabled}
