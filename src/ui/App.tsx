@@ -282,7 +282,7 @@ function Board({
         const meta = animalMeta(t.animalId)
         const label = meta ? `${meta.nameHe}` : 'קלף'
         const state = t.faceUp ? 'faceUp' : 'faceDown'
-        const disabled = t.matched
+        const disabled = t.matched || (state.status === 'preview' && !t.faceUp)
 
         return (
           <button
@@ -291,6 +291,7 @@ function Board({
             data-state={state}
             onClick={() => onFlip(t)}
             disabled={disabled}
+            aria-disabled={disabled}
             aria-label={t.faceUp ? `פתוח: ${label}` : 'סגור'}
             role="gridcell"
           >
